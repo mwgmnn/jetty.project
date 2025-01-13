@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -26,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import javax.servlet.AsyncContext;
+import javax.servlet.AsyncEvent;
+import javax.servlet.AsyncListener;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -33,8 +35,6 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpMethod;
-import org.eclipse.jetty.http.HttpURI;
-import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.EndPoint;
@@ -193,12 +193,7 @@ public class ConnectHandler extends HandlerWrapper
         String tunnelProtocol = jettyRequest.getMetaData().getProtocol();
         if (HttpMethod.CONNECT.is(request.getMethod()) && tunnelProtocol == null)
         {
-            String serverAddress = target;
-            if (HttpVersion.HTTP_2.is(request.getProtocol()))
-            {
-                HttpURI httpURI = jettyRequest.getHttpURI();
-                serverAddress = httpURI.getHost() + ":" + httpURI.getPort();
-            }
+            String serverAddress = jettyRequest.getHttpURI().getAuthority();
             if (LOG.isDebugEnabled())
                 LOG.debug("CONNECT request for {}", serverAddress);
             handleConnect(jettyRequest, request, response, serverAddress);
@@ -567,9 +562,9 @@ public class ConnectHandler extends HandlerWrapper
         }
     }
 
-    public class UpstreamConnection extends ProxyConnection
+    public class UpstreamConnection extends ProxyConnection implements AsyncListener
     {
-        private ConnectContext connectContext;
+        private final ConnectContext connectContext;
 
         public UpstreamConnection(EndPoint endPoint, Executor executor, ByteBufferPool bufferPool, ConnectContext connectContext)
         {
@@ -581,8 +576,9 @@ public class ConnectHandler extends HandlerWrapper
         public void onOpen()
         {
             super.onOpen();
+            // Delay fillInterested() until the 200 OK response has been sent.
+            connectContext.asyncContext.addListener(this);
             onConnectSuccess(connectContext, UpstreamConnection.this);
-            fillInterested();
         }
 
         @Override
@@ -595,6 +591,28 @@ public class ConnectHandler extends HandlerWrapper
         protected void write(EndPoint endPoint, ByteBuffer buffer, Callback callback)
         {
             ConnectHandler.this.write(endPoint, buffer, callback, getContext());
+        }
+
+        @Override
+        public void onComplete(AsyncEvent event)
+        {
+            fillInterested();
+        }
+
+        @Override
+        public void onTimeout(AsyncEvent event)
+        {
+        }
+
+        @Override
+        public void onError(AsyncEvent event)
+        {
+            close(event.getThrowable());
+        }
+
+        @Override
+        public void onStartAsync(AsyncEvent event)
+        {
         }
     }
 

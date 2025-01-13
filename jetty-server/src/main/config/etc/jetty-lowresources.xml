@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://www.eclipse.org/jetty/configure_10_0.dtd">
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "https://jetty.org/configure_10_0.dtd">
 
 <!-- =============================================================== -->
 <!-- Mixin the Low Resources Monitor                                 -->
@@ -13,7 +13,6 @@
         <Set name="period" property="jetty.lowresources.period"/>
         <Set name="lowResourcesIdleTimeout" property="jetty.lowresources.idleTimeout"/>
         <Set name="monitorThreads" property="jetty.lowresources.monitorThreads"/>
-        <Set name="maxConnections" property="jetty.lowresources.maxConnections"/>
         <Set name="maxMemory" property="jetty.lowresources.maxMemory"/>
         <Set name="maxLowResourcesTime" property="jetty.lowresources.maxLowResourcesTime"/>
         <Set name="acceptingInLowResources" property="jetty.lowresources.accepting"/>

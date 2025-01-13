@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -277,7 +277,7 @@ public abstract class WriteFlusher
             if (buffers != null)
             {
                 if (DEBUG)
-                    LOG.debug("flushed incomplete");
+                    LOG.debug("flush incomplete {}", this);
                 PendingState pending = new PendingState(callback, address, buffers);
                 if (updateState(__WRITING, pending))
                     onIncompleteFlush();
@@ -408,6 +408,7 @@ public abstract class WriteFlusher
     /**
      * Flushes the buffers iteratively until no progress is made.
      *
+     * @param address the datagram channel to send the buffers to (used by QUIC and HTTP/3)
      * @param buffers The buffers to flush
      * @return The unflushed buffers, or null if all flushed
      * @throws IOException if unable to flush

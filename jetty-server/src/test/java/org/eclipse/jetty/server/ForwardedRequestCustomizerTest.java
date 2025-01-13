@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -23,6 +23,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.eclipse.jetty.http.HttpCompliance;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.junit.jupiter.api.AfterEach;
@@ -38,7 +39,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ForwardedRequestCustomizerTest
 {
     private Server server;
-    private RequestHandler handler;
     private LocalConnector connector;
     private LocalConnector connectorAlt;
     private LocalConnector connectorConfigured;
@@ -68,6 +68,8 @@ public class ForwardedRequestCustomizerTest
 
         // Default behavior Connector
         HttpConnectionFactory http = new HttpConnectionFactory();
+        HttpCompliance mismatchedAuthorityHttpCompliance = HttpCompliance.RFC7230.with("Mismatched_Authority", HttpCompliance.Violation.MISMATCHED_AUTHORITY);
+        http.getHttpConfiguration().setHttpCompliance(mismatchedAuthorityHttpCompliance);
         http.getHttpConfiguration().setSecurePort(443);
         customizer = new ForwardedRequestCustomizer();
         http.getHttpConfiguration().addCustomizer(customizer);
@@ -77,6 +79,7 @@ public class ForwardedRequestCustomizerTest
         // Alternate behavior Connector
         HttpConnectionFactory httpAlt = new HttpConnectionFactory();
         httpAlt.getHttpConfiguration().setSecurePort(8443);
+        httpAlt.getHttpConfiguration().setHttpCompliance(mismatchedAuthorityHttpCompliance);
         customizerAlt = new ForwardedRequestCustomizer();
         httpAlt.getHttpConfiguration().addCustomizer(customizerAlt);
         connectorAlt = new LocalConnector(server, httpAlt);
@@ -97,9 +100,10 @@ public class ForwardedRequestCustomizerTest
 
         http.getHttpConfiguration().addCustomizer(customizerConfigured);
         connectorConfigured = new LocalConnector(server, http);
+        connectorConfigured.getConnectionFactory(HttpConnectionFactory.class).getHttpConfiguration().setHttpCompliance(mismatchedAuthorityHttpCompliance);
         server.addConnector(connectorConfigured);
 
-        handler = new RequestHandler();
+        RequestHandler handler = new RequestHandler();
         server.setHandler(handler);
 
         handler.requestTester = (request, response) ->
@@ -1110,6 +1114,57 @@ public class ForwardedRequestCustomizerTest
 
         HttpTester.Response response = HttpTester.parseResponse(connector.getResponse(rawRequest));
         assertThat("status", response.getStatus(), is(400));
+    }
+
+    public static Stream<Arguments> customHeaderNameRequestCases()
+    {
+        return Stream.of(
+            Arguments.of(new Request("Old name then new name")
+                    .headers(
+                        "GET / HTTP/1.1",
+                        "Host: myhost",
+                        "X-Forwarded-For: 1.1.1.1",
+                        "X-Custom-For: 2.2.2.2"
+                    )
+                    .configureCustomizer((forwardedRequestCustomizer) ->
+                        forwardedRequestCustomizer.setForwardedForHeader("X-Custom-For")),
+                new Expectations()
+                    .scheme("http").serverName("myhost").serverPort(80)
+                    .secure(false)
+                    .requestURL("http://myhost/")
+                    .remoteAddr("2.2.2.2").remotePort(0)
+            ),
+            Arguments.of(new Request("New name then old name")
+                    .headers(
+                        "GET / HTTP/1.1",
+                        "Host: myhost",
+                        "X-Custom-For: 2.2.2.2",
+                        "X-Forwarded-For: 1.1.1.1"
+                    )
+                    .configureCustomizer((forwardedRequestCustomizer) ->
+                        forwardedRequestCustomizer.setForwardedForHeader("X-Custom-For")),
+                new Expectations()
+                    .scheme("http").serverName("myhost").serverPort(80)
+                    .secure(false)
+                    .requestURL("http://myhost/")
+                    .remoteAddr("2.2.2.2").remotePort(0)
+            )
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("customHeaderNameRequestCases")
+    public void testCustomHeaderName(Request request, Expectations expectations) throws Exception
+    {
+        request.configure(customizer);
+
+        String rawRequest = request.getRawRequest((header) -> header);
+        // System.out.println(rawRequest);
+
+        HttpTester.Response response = HttpTester.parseResponse(connector.getResponse(rawRequest));
+        assertThat("status", response.getStatus(), is(200));
+
+        expectations.accept(actual);
     }
 
     private static class Request

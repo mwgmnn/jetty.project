@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -117,6 +117,7 @@ public class ClientConnector extends ContainerLifeCycle
     {
         this.configurator = Objects.requireNonNull(configurator);
         addBean(configurator);
+        configurator.addBean(this, false);
     }
 
     /**
@@ -588,7 +589,7 @@ public class ClientConnector extends ContainerLifeCycle
     /**
      * <p>Configures a {@link ClientConnector}.</p>
      */
-    public static class Configurator
+    public static class Configurator extends ContainerLifeCycle
     {
         /**
          * <p>Returns whether the connection to a given {@link SocketAddress} is intrinsically secure.</p>
@@ -624,6 +625,7 @@ public class ClientConnector extends ContainerLifeCycle
          * {@link SocketChannel#connect(SocketAddress)}, as this is done later,
          * after configuring the socket, by the {@link ClientConnector} implementation.</p>
          *
+         * @param clientConnector the client connector requesting channel with associated address
          * @param address the destination socket address, typically specified in a URI
          * @param context the context to create the new socket channel
          * @return a new {@link SocketChannel} with an associated {@link SocketAddress} to connect to

@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -388,14 +388,14 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
     @Override
     public void log(Request request, Response response)
     {
-        if (_ignorePathMap != null && _ignorePathMap.getMatch(request.getRequestURI()) != null)
-            return;
-
-        if (_filter != null && !_filter.test(request, response))
-            return;
-
         try
         {
+            if (_ignorePathMap != null && _ignorePathMap.getMatched(request.getRequestURI()) != null)
+                return;
+
+            if (_filter != null && !_filter.test(request, response))
+                return;
+
             StringBuilder sb = _buffers.get();
             sb.setLength(0);
 
@@ -571,14 +571,14 @@ public class CustomRequestLog extends ContainerLifeCycle implements RequestLog
                 }
                 else
                 {
-                    throw new IllegalStateException("formatString parsing error");
+                    throw new IllegalStateException("formatString parsing error: " + formatString);
                 }
 
                 remaining = m.group("REMAINING");
             }
             else
             {
-                throw new IllegalArgumentException("Invalid format string");
+                throw new IllegalArgumentException("Invalid format string: " + formatString);
             }
         }
 

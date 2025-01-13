@@ -1,6 +1,6 @@
 //
 // ========================================================================
-// Copyright (c) 1995-2022 Mort Bay Consulting Pty Ltd and others.
+// Copyright (c) 1995 Mort Bay Consulting Pty Ltd and others.
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,6 +19,8 @@ import java.util.concurrent.locks.Condition;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.util.NanoTime;
+import org.eclipse.jetty.util.StaticException;
 import org.eclipse.jetty.util.component.Destroyable;
 import org.eclipse.jetty.util.thread.AutoLock;
 import org.slf4j.Logger;
@@ -31,15 +33,8 @@ import org.slf4j.LoggerFactory;
 class AsyncContentProducer implements ContentProducer
 {
     private static final Logger LOG = LoggerFactory.getLogger(AsyncContentProducer.class);
-    private static final HttpInput.ErrorContent RECYCLED_ERROR_CONTENT = new HttpInput.ErrorContent(new IllegalStateException("ContentProducer has been recycled"));
-    private static final Throwable UNCONSUMED_CONTENT_EXCEPTION = new IOException("Unconsumed content")
-    {
-        @Override
-        public Throwable fillInStackTrace()
-        {
-            return this;
-        }
-    };
+    private static final HttpInput.ErrorContent RECYCLED_ERROR_CONTENT = new HttpInput.ErrorContent(new StaticException("ContentProducer has been recycled"));
+    private static final Throwable UNCONSUMED_CONTENT_EXCEPTION = new StaticException("Unconsumed content");
 
     private final AutoLock _lock = new AutoLock();
     private final HttpChannel _httpChannel;
@@ -47,7 +42,7 @@ class AsyncContentProducer implements ContentProducer
     private HttpInput.Content _rawContent;
     private HttpInput.Content _transformedContent;
     private boolean _error;
-    private long _firstByteTimeStamp = Long.MIN_VALUE;
+    private long _firstByteNanoTime = Long.MIN_VALUE;
     private long _rawContentArrived;
 
     AsyncContentProducer(HttpChannel httpChannel)
@@ -94,7 +89,7 @@ class AsyncContentProducer implements ContentProducer
         _rawContent = null;
         _transformedContent = null;
         _error = false;
-        _firstByteTimeStamp = Long.MIN_VALUE;
+        _firstByteNanoTime = Long.MIN_VALUE;
         _rawContentArrived = 0L;
     }
 
@@ -148,10 +143,10 @@ class AsyncContentProducer implements ContentProducer
         assertLocked();
         long minRequestDataRate = _httpChannel.getHttpConfiguration().getMinRequestDataRate();
         if (LOG.isDebugEnabled())
-            LOG.debug("checkMinDataRate [m={},t={}] {}", minRequestDataRate, _firstByteTimeStamp, this);
-        if (minRequestDataRate > 0 && _firstByteTimeStamp != Long.MIN_VALUE)
+            LOG.debug("checkMinDataRate [m={},t={}] {}", minRequestDataRate, _firstByteNanoTime, this);
+        if (minRequestDataRate > 0 && _firstByteNanoTime != Long.MIN_VALUE)
         {
-            long period = System.nanoTime() - _firstByteTimeStamp;
+            long period = NanoTime.since(_firstByteNanoTime);
             if (period > 0)
             {
                 long minimumData = minRequestDataRate * TimeUnit.NANOSECONDS.toMillis(period) / TimeUnit.SECONDS.toMillis(1);
@@ -188,10 +183,10 @@ class AsyncContentProducer implements ContentProducer
     {
         assertLocked();
         Throwable x = UNCONSUMED_CONTENT_EXCEPTION;
-        if (LOG.isDebugEnabled())
+        if (LOG.isTraceEnabled())
         {
-            x = new IOException("Unconsumed content");
-            LOG.debug("consumeAll {}", this, x);
+            x = new StaticException("Unconsumed content", true);
+            LOG.trace("consumeAll {}", this, x);
         }
         failCurrentContent(x);
         // A specific HttpChannel mechanism must be used as the following code
@@ -432,7 +427,6 @@ class AsyncContentProducer implements ContentProducer
     {
         try
         {
-            int remainingBeforeInterception = _rawContent.remaining();
             HttpInput.Content content = _interceptor.readFrom(_rawContent);
             if (content != null && content.isSpecial() && !_rawContent.isSpecial())
             {
@@ -448,24 +442,6 @@ class AsyncContentProducer implements ContentProducer
                 }
                 if (LOG.isDebugEnabled())
                     LOG.debug("interceptor generated special content {}", this);
-            }
-            else if (content != _rawContent && !_rawContent.isSpecial() && !_rawContent.isEmpty() && _rawContent.remaining() == remainingBeforeInterception)
-            {
-                IOException failure = new IOException("Interceptor " + _interceptor + " did not consume any of the " + _rawContent.remaining() + " remaining byte(s) of content");
-                if (content != null)
-                    content.failed(failure);
-                failCurrentContent(failure);
-                // Set the _error flag to mark the content as definitive, i.e.:
-                // do not try to produce new raw content to get a fresher error
-                // when the special content was caused by the interceptor not
-                // consuming the raw content.
-                _error = true;
-                Response response = _httpChannel.getResponse();
-                if (response.isCommitted())
-                    _httpChannel.abort(failure);
-                if (LOG.isDebugEnabled())
-                    LOG.debug("interceptor did not consume content {}", this);
-                content = _transformedContent;
             }
 
             if (LOG.isDebugEnabled())
@@ -495,10 +471,10 @@ class AsyncContentProducer implements ContentProducer
         if (content != null)
         {
             _rawContentArrived += content.remaining();
-            if (_firstByteTimeStamp == Long.MIN_VALUE)
-                _firstByteTimeStamp = System.nanoTime();
+            if (_firstByteNanoTime == Long.MIN_VALUE)
+                _firstByteNanoTime = NanoTime.now();
             if (LOG.isDebugEnabled())
-                LOG.debug("produceRawContent updated rawContentArrived to {} and firstByteTimeStamp to {} {}", _rawContentArrived, _firstByteTimeStamp, this);
+                LOG.debug("produceRawContent updated rawContentArrived to {} and firstByteTimeStamp to {} {}", _rawContentArrived, _firstByteNanoTime, this);
         }
         if (LOG.isDebugEnabled())
             LOG.debug("produceRawContent produced {} {}", content, this);
